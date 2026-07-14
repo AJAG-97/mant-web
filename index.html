@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Mantenimientos PDV</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#12181f" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <b>Mantenimientos PDV</b>
+    <span id="dateNow"></span>
+  </div>
+  <div class="net offline" id="netStatus">SIN CONEXIÓN</div>
+</header>
+
+<main>
+
+  <!-- ===================== VISTA: NUEVO REPORTE ===================== -->
+  <section class="view active" id="view-nuevo">
+    <p class="eyebrow">Nuevo reporte</p>
+    <h1>Registrar mantenimiento</h1>
+    <p class="hint">Completa los datos del PDV, marca los equipos atendidos y firma al final.</p>
+
+    <div class="field">
+      <label for="f-pdv">Nombre del PDV</label>
+      <input type="text" id="f-pdv" placeholder="Ej: Inglesa 200" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="f-fecha">Fecha</label>
+      <input type="date" id="f-fecha" />
+    </div>
+    <div class="field">
+      <label for="f-tecnico">Técnico</label>
+      <input type="text" id="f-tecnico" placeholder="Tu nombre" autocomplete="off" />
+    </div>
+
+    <h2>Equipos atendidos</h2>
+    <div class="equip-grid" id="equipGrid"></div>
+
+    <div id="equipDetails"></div>
+
+    <h2>Firma y sello</h2>
+    <div class="card">
+      <div class="field" style="margin-bottom:8px">
+        <label>Firma en pantalla</label>
+        <canvas class="sig-pad" id="sigPad"></canvas>
+        <div class="sig-actions">
+          <button type="button" id="sigClear">Borrar firma</button>
+        </div>
+      </div>
+      <div class="photo-row" style="margin-top:14px">
+        <label class="photo-btn" id="btnFotoFirmaPapel">
+          <span>📷</span>
+          <input type="file" accept="image/*" capture="environment" id="inpFotoFirmaPapel" />
+        </label>
+        <div class="photo-meta">Foto del papel firmado (opcional, si firmaron físico)</div>
+      </div>
+      <div class="photo-row">
+        <label class="photo-btn" id="btnFotoSello">
+          <span>📷</span>
+          <input type="file" accept="image/*" capture="environment" id="inpFotoSello" />
+        </label>
+        <div class="photo-meta">Foto del sello del PDV</div>
+      </div>
+    </div>
+
+    <button class="primary" id="btnGuardar" style="margin-top:16px">Guardar reporte</button>
+  </section>
+
+  <!-- ===================== VISTA: REPORTES ===================== -->
+  <section class="view" id="view-reportes">
+    <p class="eyebrow">Historial</p>
+    <h1>Reportes guardados</h1>
+    <p class="hint">Se sincronizan solos cuando hay conexión. Toca uno para exportar el PDF.</p>
+    <div id="reportsList"></div>
+  </section>
+
+  <!-- ===================== VISTA: AJUSTES ===================== -->
+  <section class="view" id="view-ajustes">
+    <p class="eyebrow">Ajustes</p>
+    <h1>Conexión a la nube</h1>
+    <p class="hint">Pega aquí la URL de tu Google Apps Script (ver carpeta apps-script/ para el código e instrucciones).</p>
+    <div class="field">
+      <label for="f-scripturl">URL del Web App de Apps Script</label>
+      <input type="text" id="f-scripturl" placeholder="https://script.google.com/macros/s/..." />
+    </div>
+    <button id="btnGuardarUrl">Guardar URL</button>
+    <button id="btnResync" style="margin-left:8px">Reintentar sincronización</button>
+    <p class="hint" id="syncInfo" style="margin-top:14px"></p>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<nav class="tabbar">
+  <button class="active" data-view="nuevo"><span class="icon">＋</span>Nuevo</button>
+  <button data-view="reportes"><span class="icon">☰</span>Reportes</button>
+  <button data-view="ajustes"><span class="icon">⚙</span>Ajustes</button>
+</nav>
+
+<script src="jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
