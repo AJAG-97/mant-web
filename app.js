@@ -82,45 +82,99 @@ let equipState = {}; // { teclado: { activo, foto, actividad, paraCambio, detall
 let firmaFotoPapel = null;
 let selloFoto = null;
 
-/* ============ Render checklist de equipos ============ */
-function renderEquipGrid() {
-  const grid = document.getElementById("equipGrid");
-  grid.innerHTML = "";
+/* ============ Selector desplegable de equipos (modal) ============ */
+function renderEquipModalList() {
+  const list = document.getElementById("equipModalList");
+  list.innerHTML = "";
   EQUIPOS.forEach((eq) => {
-    const chip = document.createElement("label");
-    chip.className = "equip-chip";
-    chip.innerHTML = `<input type="checkbox" data-id="${eq.id}" /> ${eq.icon} ${eq.label}`;
-    const cb = chip.querySelector("input");
-    cb.addEventListener("change", () => {
-      chip.classList.toggle("active", cb.checked);
-      if (cb.checked) {
-        equipState[eq.id] = equipState[eq.id] || {
-          activo: true, foto: null, actividad: "", paraCambio: false, detalleCambio: "",
-        };
-      } else {
-        delete equipState[eq.id];
-      }
-      renderEquipDetails();
-    });
-    grid.appendChild(chip);
+    const row = document.createElement("label");
+    row.className = "equip-option";
+    const checked = !!equipState[eq.id];
+    row.innerHTML = `<input type="checkbox" data-id="${eq.id}" ${checked ? "checked" : ""} /> ${eq.icon} ${eq.label}`;
+    list.appendChild(row);
   });
 }
+function openEquipModal() {
+  renderEquipModalList();
+  document.getElementById("equipModalBackdrop").classList.add("show");
+}
+function closeEquipModal() {
+  document.getElementById("equipModalBackdrop").classList.remove("show");
+}
+function confirmEquipModal() {
+  const checks = document.querySelectorAll("#equipModalList input[type=checkbox]");
+  checks.forEach((cb) => {
+    const id = cb.dataset.id;
+    if (cb.checked && !equipState[id]) {
+      equipState[id] = { activo: true, fotos: [], activoFijo: "", actividad: "", paraCambio: false, detalleCambio: "" };
+    } else if (!cb.checked && equipState[id]) {
+      delete equipState[id];
+    }
+  });
+  updateEquipSummary();
+  renderEquipDetails();
+  closeEquipModal();
+}
+function updateEquipSummary() {
+  const ids = Object.keys(equipState);
+  const label = document.getElementById("equipSelectLabel");
+  label.textContent = ids.length === 0
+    ? "Seleccionar equipos"
+    : `${ids.length} equipo(s) seleccionado(s)`;
+
+  const tagsWrap = document.getElementById("equipTags");
+  tagsWrap.innerHTML = "";
+  ids.forEach((id) => {
+    const meta = EQUIPOS.find((e) => e.id === id);
+    const tag = document.createElement("span");
+    tag.className = "equip-tag";
+    tag.innerHTML = `${meta.icon} ${meta.label} <button type="button" data-id="${id}">✕</button>`;
+    tag.querySelector("button").addEventListener("click", () => {
+      delete equipState[id];
+      updateEquipSummary();
+      renderEquipDetails();
+    });
+    tagsWrap.appendChild(tag);
+  });
+}
+document.getElementById("btnAbrirEquipos").addEventListener("click", openEquipModal);
+document.getElementById("equipModalClose").addEventListener("click", closeEquipModal);
+document.getElementById("equipModalBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "equipModalBackdrop") closeEquipModal();
+});
+document.getElementById("equipModalAceptar").addEventListener("click", confirmEquipModal);
 
 function renderEquipDetails() {
   const wrap = document.getElementById("equipDetails");
   wrap.innerHTML = "";
   EQUIPOS.filter((eq) => equipState[eq.id]).forEach((eq) => {
     const st = equipState[eq.id];
+    if (!st.fotos) st.fotos = st.foto ? [st.foto] : []; // compatibilidad con reportes viejos
     const card = document.createElement("div");
     card.className = "card equip-card";
+
+    const thumbsHtml = st.fotos.map((f, i) => `
+      <div class="photo-thumb">
+        <img src="${f}" />
+        <button type="button" class="thumb-remove" data-idx="${i}">✕</button>
+      </div>
+    `).join("");
+
     card.innerHTML = `
       <h3>${eq.icon} ${eq.label}</h3>
-      <div class="photo-row">
-        <label class="photo-btn">
-          ${st.foto ? `<img src="${st.foto}" />` : "📷"}
-          <input type="file" accept="image/*" capture="environment" data-role="foto" />
-        </label>
-        <div class="photo-meta">Foto del equipo</div>
+      <div class="field">
+        <label>Número de activo fijo</label>
+        <input type="text" data-role="activoFijo" placeholder="Ej: AF-00123" value="${st.activoFijo || ""}" />
+      </div>
+      <div class="field">
+        <label>Fotos del equipo (${st.fotos.length})</label>
+        <div class="photo-gallery">
+          ${thumbsHtml}
+          <label class="photo-btn">
+            <span>📷</span>
+            <input type="file" accept="image/*" capture="environment" data-role="foto" />
+          </label>
+        </div>
       </div>
       <div class="field">
         <label>Actividad realizada</label>
@@ -135,11 +189,21 @@ function renderEquipDetails() {
         <textarea data-role="detalle" placeholder="Ej: teclado con teclas pegadas, requiere reemplazo">${st.detalleCambio}</textarea>
       </div>
     `;
+    card.querySelector('[data-role="activoFijo"]').addEventListener("input", (e) => {
+      st.activoFijo = e.target.value;
+    });
     card.querySelector('[data-role="foto"]').addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      st.foto = await compressImage(file);
+      const compressed = await compressImage(file);
+      st.fotos.push(compressed);
       renderEquipDetails();
+    });
+    card.querySelectorAll(".thumb-remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        st.fotos.splice(Number(btn.dataset.idx), 1);
+        renderEquipDetails();
+      });
     });
     card.querySelector('[data-role="actividad"]').addEventListener("input", (e) => {
       st.actividad = e.target.value;
@@ -158,6 +222,70 @@ function renderEquipDetails() {
     wrap.appendChild(card);
   });
 }
+
+/* ============ Calendario desplegable ============ */
+const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+let calViewDate = new Date();
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function fechaToISO(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function fechaLabel(d) { return `${d.getDate()} de ${MESES[d.getMonth()].toLowerCase()} de ${d.getFullYear()}`; }
+
+function setFecha(d) {
+  document.getElementById("f-fecha").value = fechaToISO(d);
+  document.getElementById("fechaLabel").textContent = fechaLabel(d);
+}
+
+function renderCalendar() {
+  document.getElementById("calMonthLabel").textContent = `${MESES[calViewDate.getMonth()]} ${calViewDate.getFullYear()}`;
+  const grid = document.getElementById("calGrid");
+  grid.innerHTML = "";
+
+  const year = calViewDate.getFullYear();
+  const month = calViewDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const selected = document.getElementById("f-fecha").value;
+  const todayISO = fechaToISO(new Date());
+
+  for (let i = 0; i < firstDay; i++) {
+    grid.appendChild(document.createElement("span"));
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month, day);
+    const iso = fechaToISO(d);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = day;
+    btn.className = "cal-day" + (iso === selected ? " selected" : "") + (iso === todayISO ? " today" : "");
+    btn.addEventListener("click", () => {
+      setFecha(d);
+      document.getElementById("calModalBackdrop").classList.remove("show");
+    });
+    grid.appendChild(btn);
+  }
+}
+document.getElementById("f-fecha-btn").addEventListener("click", () => {
+  const current = document.getElementById("f-fecha").value;
+  calViewDate = current ? new Date(current + "T00:00:00") : new Date();
+  renderCalendar();
+  document.getElementById("calModalBackdrop").classList.add("show");
+});
+document.getElementById("calModalBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "calModalBackdrop") e.currentTarget.classList.remove("show");
+});
+document.getElementById("calPrev").addEventListener("click", () => {
+  calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() - 1, 1);
+  renderCalendar();
+});
+document.getElementById("calNext").addEventListener("click", () => {
+  calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
+  renderCalendar();
+});
+document.getElementById("calHoy").addEventListener("click", () => {
+  setFecha(new Date());
+  document.getElementById("calModalBackdrop").classList.remove("show");
+});
 
 /* ============ Firma en pantalla ============ */
 let sigCtx, drawing = false, sigHasContent = false;
@@ -209,14 +337,11 @@ function getSigDataUrl() {
 function resetForm() {
   document.getElementById("f-pdv").value = "";
   document.getElementById("f-tecnico").value = "";
-  document.getElementById("f-fecha").valueAsDate = new Date();
+  setFecha(new Date());
   equipState = {};
   firmaFotoPapel = null;
   selloFoto = null;
-  document.querySelectorAll(".equip-chip").forEach((c) => {
-    c.classList.remove("active");
-    c.querySelector("input").checked = false;
-  });
+  updateEquipSummary();
   renderEquipDetails();
   document.getElementById("btnFotoFirmaPapel").innerHTML =
     `<span>📷</span><input type="file" accept="image/*" capture="environment" id="inpFotoFirmaPapel" />`;
@@ -346,6 +471,10 @@ function exportPDF(r) {
     doc.text(`${meta ? meta.label : eq.id}`, marginX, y);
     y += 16;
     doc.setFontSize(10);
+    if (eq.activoFijo) {
+      doc.text(`Activo fijo: ${eq.activoFijo}`, marginX, y);
+      y += 14;
+    }
     const actividad = doc.splitTextToSize(`Actividad: ${eq.actividad || "-"}`, 500);
     doc.text(actividad, marginX, y);
     y += actividad.length * 12 + 4;
@@ -354,9 +483,17 @@ function exportPDF(r) {
       doc.text(cambio, marginX, y);
       y += cambio.length * 12 + 4;
     }
-    if (eq.foto) {
-      if (y > 620) { doc.addPage(); y = 50; }
-      try { doc.addImage(eq.foto, "JPEG", marginX, y, 140, 105); y += 115; } catch (e) {}
+    const fotos = eq.fotos || (eq.foto ? [eq.foto] : []);
+    if (fotos.length) {
+      if (y > 590) { doc.addPage(); y = 50; }
+      let x = marginX;
+      fotos.forEach((foto) => {
+        if (x + 110 > 555) { x = marginX; y += 90; }
+        if (y > 690) { doc.addPage(); y = 50; x = marginX; }
+        try { doc.addImage(foto, "JPEG", x, y, 100, 75); } catch (e) {}
+        x += 110;
+      });
+      y += 85;
     }
     y += 10;
   });
@@ -379,6 +516,53 @@ function exportPDF(r) {
 
   doc.save(`mantenimiento_${r.pdv.replace(/\s+/g, "_")}_${r.fecha}.pdf`);
 }
+
+/* ============ Exportar reportes del día a Excel ============ */
+function todayStr() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+async function exportDayExcel() {
+  const all = await dbAll();
+  const hoy = todayStr();
+  const deHoy = all.filter((r) => r.fecha === hoy);
+
+  if (deHoy.length === 0) {
+    return toast("No hay reportes de hoy para exportar");
+  }
+
+  const rows = [];
+  deHoy.forEach((r) => {
+    r.equipos.forEach((eq) => {
+      const meta = EQUIPOS.find((e) => e.id === eq.id);
+      rows.push({
+        "PDV": r.pdv,
+        "Fecha": r.fecha,
+        "Técnico": r.tecnico || "",
+        "Equipo": meta ? meta.label : eq.id,
+        "Activo fijo": eq.activoFijo || "",
+        "Actividad realizada": eq.actividad || "",
+        "Para cambio": eq.paraCambio ? "Sí" : "No",
+        "Detalle de cambio": eq.detalleCambio || "",
+        "Fotos tomadas": (eq.fotos || (eq.foto ? [eq.foto] : [])).length,
+        "Firma": r.firmaDibujo || r.firmaFotoPapel ? "Sí" : "No",
+        "Sello": r.selloFoto ? "Sí" : "No",
+        "Sincronizado": r.synced ? "Sí" : "Pendiente",
+      });
+    });
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 16 }, { wch: 11 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 40 },
+    { wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 13 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Reportes");
+  XLSX.writeFile(wb, `mantenimientos_${hoy}.xlsx`);
+}
+document.getElementById("btnExportExcelDia").addEventListener("click", exportDayExcel);
 
 /* ============ Navegación por pestañas ============ */
 document.querySelectorAll("nav.tabbar button").forEach((btn) => {
@@ -412,11 +596,11 @@ window.addEventListener("online", updateNetStatus);
 window.addEventListener("offline", updateNetStatus);
 
 /* ============ Init ============ */
-document.getElementById("f-fecha").valueAsDate = new Date();
+setFecha(new Date());
 document.getElementById("dateNow").textContent = new Date().toLocaleDateString("es-CO", {
   weekday: "long", day: "numeric", month: "long",
 });
-renderEquipGrid();
+updateEquipSummary();
 initSigPad();
 updateNetStatus();
 renderReportsList();

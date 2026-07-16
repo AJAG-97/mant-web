@@ -33,8 +33,12 @@
       <input type="text" id="f-pdv" placeholder="Ej: Inglesa 200" autocomplete="off" />
     </div>
     <div class="field">
-      <label for="f-fecha">Fecha</label>
-      <input type="date" id="f-fecha" />
+      <label for="f-fecha-btn">Fecha</label>
+      <button type="button" class="btn-select" id="f-fecha-btn">
+        <span id="fechaLabel">Selecciona una fecha</span>
+        <span class="chev">📅</span>
+      </button>
+      <input type="hidden" id="f-fecha" />
     </div>
     <div class="field">
       <label for="f-tecnico">Técnico</label>
@@ -42,7 +46,11 @@
     </div>
 
     <h2>Equipos atendidos</h2>
-    <div class="equip-grid" id="equipGrid"></div>
+    <button type="button" class="btn-select" id="btnAbrirEquipos">
+      <span id="equipSelectLabel">Seleccionar equipos</span>
+      <span class="chev">▾</span>
+    </button>
+    <div class="equip-tags" id="equipTags"></div>
 
     <div id="equipDetails"></div>
 
@@ -79,6 +87,7 @@
     <p class="eyebrow">Historial</p>
     <h1>Reportes guardados</h1>
     <p class="hint">Se sincronizan solos cuando hay conexión. Toca uno para exportar el PDF.</p>
+    <button type="button" id="btnExportExcelDia" style="width:100%; margin-bottom:14px">⬇ Exportar reportes de hoy (.xlsx)</button>
     <div id="reportsList"></div>
   </section>
 
@@ -98,6 +107,38 @@
 
 </main>
 
+<div class="modal-backdrop" id="calModalBackdrop">
+  <div class="modal-sheet">
+    <div class="modal-head">
+      <button type="button" class="modal-close" id="calPrev">‹</button>
+      <b id="calMonthLabel">Julio 2026</b>
+      <button type="button" class="modal-close" id="calNext">›</button>
+    </div>
+    <div class="modal-body">
+      <div class="cal-weekdays">
+        <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" id="calHoy">Hoy</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="equipModalBackdrop">
+  <div class="modal-sheet">
+    <div class="modal-head">
+      <b>Seleccionar equipos</b>
+      <button type="button" class="modal-close" id="equipModalClose">✕</button>
+    </div>
+    <div class="modal-body" id="equipModalList"></div>
+    <div class="modal-foot">
+      <button type="button" class="primary" id="equipModalAceptar">Aceptar</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <nav class="tabbar">
@@ -107,6 +148,7 @@
 </nav>
 
 <script src="jspdf.umd.min.js"></script>
+<script src="xlsx.full.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
