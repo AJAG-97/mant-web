@@ -12,6 +12,7 @@ const EQUIPOS = [
 const DB_NAME = "mant_pdv_db";
 const STORE = "reportes";
 const LS_URL_KEY = "mant_pdv_script_url";
+const LS_DRAFT_KEY = "mant_pdv_draft";
 
 /* ============ IndexedDB helper ============ */
 function openDB() {
@@ -82,6 +83,88 @@ let equipState = {}; // { teclado: { activo, foto, actividad, paraCambio, detall
 let firmaFotoPapel = null;
 let selloFoto = null;
 
+/* ============ Borrador automático (protege contra recargas accidentales) ============ */
+let draftTimer = null;
+function saveDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    try {
+      const draft = {
+        pdv: document.getElementById("f-pdv").value,
+        fecha: document.getElementById("f-fecha").value,
+        fechaLabel: document.getElementById("fechaLabel").textContent,
+        tecnico: document.getElementById("f-tecnico").value,
+        equipState,
+        firmaDibujo: getSigDataUrl(),
+        firmaFotoPapel,
+        selloFoto,
+      };
+      const vacio = !draft.pdv && Object.keys(equipState).length === 0 && !firmaFotoPapel && !selloFoto && !draft.firmaDibujo;
+      if (vacio) {
+        localStorage.removeItem(LS_DRAFT_KEY);
+      } else {
+        localStorage.setItem(LS_DRAFT_KEY, JSON.stringify(draft));
+      }
+    } catch (e) {
+      // si el borrador no cabe (demasiadas fotos pesadas), no rompe la app
+    }
+  }, 400);
+}
+function clearDraft() {
+  clearTimeout(draftTimer);
+  localStorage.removeItem(LS_DRAFT_KEY);
+}
+function restoreDraft(draft) {
+  document.getElementById("f-pdv").value = draft.pdv || "";
+  document.getElementById("f-tecnico").value = draft.tecnico || "";
+  if (draft.fecha) {
+    document.getElementById("f-fecha").value = draft.fecha;
+    document.getElementById("fechaLabel").textContent = draft.fechaLabel || draft.fecha;
+  }
+  equipState = draft.equipState || {};
+  firmaFotoPapel = draft.firmaFotoPapel || null;
+  selloFoto = draft.selloFoto || null;
+
+  updateEquipSummary();
+  renderEquipDetails();
+
+  if (firmaFotoPapel) {
+    document.getElementById("btnFotoFirmaPapel").innerHTML =
+      `<img src="${firmaFotoPapel}" /><input type="file" accept="image/*" capture="environment" id="inpFotoFirmaPapel" />`;
+    document.getElementById("inpFotoFirmaPapel").addEventListener("change", handleFirmaPapelChange);
+  }
+  if (selloFoto) {
+    document.getElementById("btnFotoSello").innerHTML =
+      `<img src="${selloFoto}" /><input type="file" accept="image/*" capture="environment" id="inpFotoSello" />`;
+    document.getElementById("inpFotoSello").addEventListener("change", handleSelloChange);
+  }
+  if (draft.firmaDibujo) {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.getElementById("sigPad");
+      sigCtx.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+      sigHasContent = true;
+    };
+    img.src = draft.firmaDibujo;
+  }
+  toast("Se restauró el reporte que tenías sin guardar");
+}
+function checkForDraft() {
+  let raw;
+  try { raw = localStorage.getItem(LS_DRAFT_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let draft;
+  try { draft = JSON.parse(raw); } catch (e) { localStorage.removeItem(LS_DRAFT_KEY); return; }
+  const tieneAlgo = draft.pdv || (draft.equipState && Object.keys(draft.equipState).length) || draft.firmaFotoPapel || draft.selloFoto || draft.firmaDibujo;
+  if (!tieneAlgo) return;
+  const continuar = window.confirm("Tenías un reporte sin guardar (parece que la app se recargó). ¿Quieres continuar donde lo dejaste?");
+  if (continuar) {
+    restoreDraft(draft);
+  } else {
+    localStorage.removeItem(LS_DRAFT_KEY);
+  }
+}
+
 /* ============ Selector desplegable de equipos (modal) ============ */
 function renderEquipModalList() {
   const list = document.getElementById("equipModalList");
@@ -114,6 +197,7 @@ function confirmEquipModal() {
   updateEquipSummary();
   renderEquipDetails();
   closeEquipModal();
+  saveDraft();
 }
 function updateEquipSummary() {
   const ids = Object.keys(equipState);
@@ -133,6 +217,7 @@ function updateEquipSummary() {
       delete equipState[id];
       updateEquipSummary();
       renderEquipDetails();
+      saveDraft();
     });
     tagsWrap.appendChild(tag);
   });
@@ -191,6 +276,7 @@ function renderEquipDetails() {
     `;
     card.querySelector('[data-role="activoFijo"]').addEventListener("input", (e) => {
       st.activoFijo = e.target.value;
+      saveDraft();
     });
     card.querySelector('[data-role="foto"]').addEventListener("change", async (e) => {
       const file = e.target.files[0];
@@ -198,25 +284,30 @@ function renderEquipDetails() {
       const compressed = await compressImage(file);
       st.fotos.push(compressed);
       renderEquipDetails();
+      saveDraft();
     });
     card.querySelectorAll(".thumb-remove").forEach((btn) => {
       btn.addEventListener("click", () => {
         st.fotos.splice(Number(btn.dataset.idx), 1);
         renderEquipDetails();
+        saveDraft();
       });
     });
     card.querySelector('[data-role="actividad"]').addEventListener("input", (e) => {
       st.actividad = e.target.value;
+      saveDraft();
     });
     const toggle = card.querySelector('[data-role="toggle"]');
     toggle.addEventListener("click", () => {
       st.paraCambio = !st.paraCambio;
       renderEquipDetails();
+      saveDraft();
     });
     const detalleTa = card.querySelector('[data-role="detalle"]');
     if (detalleTa) {
       detalleTa.addEventListener("input", (e) => {
         st.detalleCambio = e.target.value;
+        saveDraft();
       });
     }
     wrap.appendChild(card);
@@ -261,6 +352,7 @@ function renderCalendar() {
     btn.addEventListener("click", () => {
       setFecha(d);
       document.getElementById("calModalBackdrop").classList.remove("show");
+      saveDraft();
     });
     grid.appendChild(btn);
   }
@@ -285,6 +377,7 @@ document.getElementById("calNext").addEventListener("click", () => {
 document.getElementById("calHoy").addEventListener("click", () => {
   setFecha(new Date());
   document.getElementById("calModalBackdrop").classList.remove("show");
+  saveDraft();
 });
 
 /* ============ Firma en pantalla ============ */
@@ -314,7 +407,7 @@ function initSigPad() {
     sigCtx.stroke();
     sigHasContent = true;
   };
-  const end = () => (drawing = false);
+  const end = () => { drawing = false; saveDraft(); };
 
   canvas.addEventListener("mousedown", start);
   canvas.addEventListener("mousemove", move);
@@ -335,6 +428,7 @@ function getSigDataUrl() {
 
 /* ============ Guardar reporte ============ */
 function resetForm() {
+  clearDraft();
   document.getElementById("f-pdv").value = "";
   document.getElementById("f-tecnico").value = "";
   setFecha(new Date());
@@ -359,6 +453,7 @@ async function handleFirmaPapelChange(e) {
   firmaFotoPapel = await compressImage(file);
   document.getElementById("btnFotoFirmaPapel").innerHTML = `<img src="${firmaFotoPapel}" /><input type="file" accept="image/*" capture="environment" id="inpFotoFirmaPapel" />`;
   document.getElementById("inpFotoFirmaPapel").addEventListener("change", handleFirmaPapelChange);
+  saveDraft();
 }
 async function handleSelloChange(e) {
   const file = e.target.files[0];
@@ -366,6 +461,7 @@ async function handleSelloChange(e) {
   selloFoto = await compressImage(file);
   document.getElementById("btnFotoSello").innerHTML = `<img src="${selloFoto}" /><input type="file" accept="image/*" capture="environment" id="inpFotoSello" />`;
   document.getElementById("inpFotoSello").addEventListener("change", handleSelloChange);
+  saveDraft();
 }
 
 document.getElementById("btnGuardar").addEventListener("click", async () => {
@@ -400,9 +496,14 @@ document.getElementById("btnGuardar").addEventListener("click", async () => {
 function getScriptUrl() {
   return localStorage.getItem(LS_URL_KEY) || "";
 }
+const syncingIds = new Set(); // evita mandar el mismo reporte 2 veces a la vez
+
 async function trySync(report) {
   const url = getScriptUrl();
   if (!url || !navigator.onLine) return;
+  if (report.synced) return;
+  if (syncingIds.has(report.id)) return; // ya se está enviando, no dupliques
+  syncingIds.add(report.id);
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -416,11 +517,13 @@ async function trySync(report) {
     }
   } catch (err) {
     // se queda pendiente, se reintenta luego
+  } finally {
+    syncingIds.delete(report.id);
   }
 }
 async function syncPending() {
   const all = await dbAll();
-  const pending = all.filter((r) => !r.synced);
+  const pending = all.filter((r) => !r.synced && !syncingIds.has(r.id));
   for (const r of pending) await trySync(r);
   document.getElementById("syncInfo").textContent =
     pending.length ? `Sincronizando ${pending.length} reporte(s) pendiente(s)...` : "Todo sincronizado.";
@@ -517,23 +620,15 @@ function exportPDF(r) {
   doc.save(`mantenimiento_${r.pdv.replace(/\s+/g, "_")}_${r.fecha}.pdf`);
 }
 
-/* ============ Exportar reportes del día a Excel ============ */
+/* ============ Exportar reportes a Excel (día / todos) ============ */
 function todayStr() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-async function exportDayExcel() {
-  const all = await dbAll();
-  const hoy = todayStr();
-  const deHoy = all.filter((r) => r.fecha === hoy);
-
-  if (deHoy.length === 0) {
-    return toast("No hay reportes de hoy para exportar");
-  }
-
+function reportsToRows(reportes) {
   const rows = [];
-  deHoy.forEach((r) => {
+  reportes.forEach((r) => {
     r.equipos.forEach((eq) => {
       const meta = EQUIPOS.find((e) => e.id === eq.id);
       rows.push({
@@ -552,7 +647,9 @@ async function exportDayExcel() {
       });
     });
   });
-
+  return rows;
+}
+function writeExcel(rows, filename) {
   const ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = [
     { wch: 16 }, { wch: 11 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 40 },
@@ -560,9 +657,22 @@ async function exportDayExcel() {
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Reportes");
-  XLSX.writeFile(wb, `mantenimientos_${hoy}.xlsx`);
+  XLSX.writeFile(wb, filename);
+}
+async function exportDayExcel() {
+  const all = await dbAll();
+  const hoy = todayStr();
+  const deHoy = all.filter((r) => r.fecha === hoy);
+  if (deHoy.length === 0) return toast("No hay reportes de hoy para exportar");
+  writeExcel(reportsToRows(deHoy), `mantenimientos_${hoy}.xlsx`);
+}
+async function exportAllExcel() {
+  const all = await dbAll();
+  if (all.length === 0) return toast("No hay reportes guardados en este celular todavía");
+  writeExcel(reportsToRows(all), `mantenimientos_TODOS_${todayStr()}.xlsx`);
 }
 document.getElementById("btnExportExcelDia").addEventListener("click", exportDayExcel);
+document.getElementById("btnExportExcelTodo").addEventListener("click", exportAllExcel);
 
 /* ============ Navegación por pestañas ============ */
 document.querySelectorAll("nav.tabbar button").forEach((btn) => {
@@ -606,7 +716,10 @@ updateNetStatus();
 renderReportsList();
 document.getElementById("inpFotoFirmaPapel").addEventListener("change", handleFirmaPapelChange);
 document.getElementById("inpFotoSello").addEventListener("change", handleSelloChange);
+document.getElementById("f-pdv").addEventListener("input", saveDraft);
+document.getElementById("f-tecnico").addEventListener("input", saveDraft);
 setInterval(() => { if (navigator.onLine) syncPending(); }, 60000);
+checkForDraft();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
