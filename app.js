@@ -124,6 +124,7 @@ function restoreDraft(draft) {
   equipState = draft.equipState || {};
   firmaFotoPapel = draft.firmaFotoPapel || null;
   selloFoto = draft.selloFoto || null;
+  normalizeEquipState();
 
   updateEquipSummary();
   renderEquipDetails();
@@ -165,17 +166,43 @@ function checkForDraft() {
   }
 }
 
-/* ============ Selector desplegable de equipos (modal) ============ */
+/* ============ Selector desplegable de equipos (modal con contador) ============ */
 function renderEquipModalList() {
   const list = document.getElementById("equipModalList");
   list.innerHTML = "";
   EQUIPOS.forEach((eq) => {
-    const row = document.createElement("label");
+    const qty = equipState[eq.id] ? equipState[eq.id].length : 0;
+    const row = document.createElement("div");
     row.className = "equip-option";
-    const checked = !!equipState[eq.id];
-    row.innerHTML = `<input type="checkbox" data-id="${eq.id}" ${checked ? "checked" : ""} /> ${eq.icon} ${eq.label}`;
+    row.innerHTML = `
+      <span class="equip-option-label">${eq.icon} ${eq.label}</span>
+      <div class="qty-stepper">
+        <button type="button" data-action="dec" data-id="${eq.id}">−</button>
+        <span data-role="qty" data-id="${eq.id}">${qty}</span>
+        <button type="button" data-action="inc" data-id="${eq.id}">+</button>
+      </div>
+    `;
     list.appendChild(row);
   });
+  list.querySelectorAll('[data-action="inc"]').forEach((btn) => {
+    btn.addEventListener("click", () => changeEquipQty(btn.dataset.id, 1));
+  });
+  list.querySelectorAll('[data-action="dec"]').forEach((btn) => {
+    btn.addEventListener("click", () => changeEquipQty(btn.dataset.id, -1));
+  });
+}
+function changeEquipQty(id, delta) {
+  if (!equipState[id]) equipState[id] = [];
+  if (delta > 0) {
+    equipState[id].push(defaultEquipItem());
+  } else if (delta < 0 && equipState[id].length > 0) {
+    equipState[id].pop(); // quita la última instancia agregada de ese tipo
+  }
+  if (equipState[id].length === 0) delete equipState[id];
+  renderEquipModalList(); // refresca el número dentro del mismo modal
+  updateEquipSummary();
+  renderEquipDetails();
+  saveDraft();
 }
 function openEquipModal() {
   renderEquipModalList();
@@ -184,35 +211,35 @@ function openEquipModal() {
 function closeEquipModal() {
   document.getElementById("equipModalBackdrop").classList.remove("show");
 }
-function confirmEquipModal() {
-  const checks = document.querySelectorAll("#equipModalList input[type=checkbox]");
-  checks.forEach((cb) => {
-    const id = cb.dataset.id;
-    if (cb.checked && !equipState[id]) {
-      equipState[id] = { activo: true, fotos: [], activoFijo: "", actividad: "", paraCambio: false, detalleCambio: "" };
-    } else if (!cb.checked && equipState[id]) {
-      delete equipState[id];
+function defaultEquipItem() {
+  return { fotos: [], activoFijo: "", actividad: "", paraCambio: false, detalleCambio: "" };
+}
+function normalizeEquipState() {
+  Object.keys(equipState).forEach((id) => {
+    if (!Array.isArray(equipState[id])) {
+      equipState[id] = [equipState[id]]; // compatibilidad con borradores/reportes viejos
     }
+    equipState[id].forEach((item) => {
+      if (!item.fotos) item.fotos = item.foto ? [item.foto] : [];
+    });
   });
-  updateEquipSummary();
-  renderEquipDetails();
-  closeEquipModal();
-  saveDraft();
 }
 function updateEquipSummary() {
   const ids = Object.keys(equipState);
+  const totalInstancias = ids.reduce((sum, id) => sum + equipState[id].length, 0);
   const label = document.getElementById("equipSelectLabel");
-  label.textContent = ids.length === 0
+  label.textContent = totalInstancias === 0
     ? "Seleccionar equipos"
-    : `${ids.length} equipo(s) seleccionado(s)`;
+    : `${totalInstancias} equipo(s) seleccionado(s)`;
 
   const tagsWrap = document.getElementById("equipTags");
   tagsWrap.innerHTML = "";
   ids.forEach((id) => {
     const meta = EQUIPOS.find((e) => e.id === id);
+    const cantidad = equipState[id].length;
     const tag = document.createElement("span");
     tag.className = "equip-tag";
-    tag.innerHTML = `${meta.icon} ${meta.label} <button type="button" data-id="${id}">✕</button>`;
+    tag.innerHTML = `${meta.icon} ${meta.label}${cantidad > 1 ? ` ×${cantidad}` : ""} <button type="button" data-id="${id}">✕</button>`;
     tag.querySelector("button").addEventListener("click", () => {
       delete equipState[id];
       updateEquipSummary();
@@ -227,90 +254,104 @@ document.getElementById("equipModalClose").addEventListener("click", closeEquipM
 document.getElementById("equipModalBackdrop").addEventListener("click", (e) => {
   if (e.target.id === "equipModalBackdrop") closeEquipModal();
 });
-document.getElementById("equipModalAceptar").addEventListener("click", confirmEquipModal);
+document.getElementById("equipModalAceptar").addEventListener("click", closeEquipModal);
 
 function renderEquipDetails() {
+  normalizeEquipState();
   const wrap = document.getElementById("equipDetails");
   wrap.innerHTML = "";
-  EQUIPOS.filter((eq) => equipState[eq.id]).forEach((eq) => {
-    const st = equipState[eq.id];
-    if (!st.fotos) st.fotos = st.foto ? [st.foto] : []; // compatibilidad con reportes viejos
-    const card = document.createElement("div");
-    card.className = "card equip-card";
+  EQUIPOS.filter((eq) => equipState[eq.id] && equipState[eq.id].length).forEach((eq) => {
+    const items = equipState[eq.id];
 
-    const thumbsHtml = st.fotos.map((f, i) => `
-      <div class="photo-thumb">
-        <img src="${f}" />
-        <button type="button" class="thumb-remove" data-idx="${i}">✕</button>
-      </div>
-    `).join("");
+    items.forEach((st, idx) => {
+      const card = document.createElement("div");
+      card.className = "card equip-card";
+      const titulo = items.length > 1 ? `${eq.icon} ${eq.label} ${idx + 1}` : `${eq.icon} ${eq.label}`;
 
-    card.innerHTML = `
-      <h3>${eq.icon} ${eq.label}</h3>
-      <div class="field">
-        <label>Número de activo fijo</label>
-        <input type="text" data-role="activoFijo" placeholder="Ej: AF-00123" value="${st.activoFijo || ""}" />
-      </div>
-      <div class="field">
-        <label>Fotos del equipo (${st.fotos.length})</label>
-        <div class="photo-gallery">
-          ${thumbsHtml}
-          <label class="photo-btn">
-            <span>📷</span>
-            <input type="file" accept="image/*" capture="environment" data-role="foto" />
-          </label>
+      const thumbsHtml = st.fotos.map((f, i) => `
+        <div class="photo-thumb">
+          <img src="${f}" />
+          <button type="button" class="thumb-remove" data-idx="${i}">✕</button>
         </div>
-      </div>
-      <div class="field">
-        <label>Actividad realizada</label>
-        <textarea data-role="actividad" placeholder="Ej: limpieza interna, cambio de pasta térmica, revisión de cables...">${st.actividad}</textarea>
-      </div>
-      <div class="switch-row">
-        <label>Está para cambio</label>
-        <div class="toggle ${st.paraCambio ? "on" : ""}" data-role="toggle"></div>
-      </div>
-      <div class="field" data-role="detalleWrap" style="${st.paraCambio ? "" : "display:none"}; margin-top:8px">
-        <label>Detalle de lo que está para cambio</label>
-        <textarea data-role="detalle" placeholder="Ej: teclado con teclas pegadas, requiere reemplazo">${st.detalleCambio}</textarea>
-      </div>
-    `;
-    card.querySelector('[data-role="activoFijo"]').addEventListener("input", (e) => {
-      st.activoFijo = e.target.value;
-      saveDraft();
-    });
-    card.querySelector('[data-role="foto"]').addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const compressed = await compressImage(file);
-      st.fotos.push(compressed);
-      renderEquipDetails();
-      saveDraft();
-    });
-    card.querySelectorAll(".thumb-remove").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        st.fotos.splice(Number(btn.dataset.idx), 1);
+      `).join("");
+
+      card.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
+          <h3 style="margin:0">${titulo}</h3>
+          <button type="button" class="remove-x" data-role="quitarInstancia" title="Quitar este equipo">🗑</button>
+        </div>
+        <div class="field">
+          <label>Número de activo fijo</label>
+          <input type="text" data-role="activoFijo" placeholder="Ej: AF-00123" value="${st.activoFijo || ""}" />
+        </div>
+        <div class="field">
+          <label>Fotos del equipo (${st.fotos.length})</label>
+          <div class="photo-gallery">
+            ${thumbsHtml}
+            <label class="photo-btn">
+              <span>📷</span>
+              <input type="file" accept="image/*" capture="environment" data-role="foto" />
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Actividad realizada</label>
+          <textarea data-role="actividad" placeholder="Ej: limpieza interna, cambio de pasta térmica, revisión de cables...">${st.actividad}</textarea>
+        </div>
+        <div class="switch-row">
+          <label>Está para cambio</label>
+          <div class="toggle ${st.paraCambio ? "on" : ""}" data-role="toggle"></div>
+        </div>
+        <div class="field" data-role="detalleWrap" style="${st.paraCambio ? "" : "display:none"}; margin-top:8px">
+          <label>Detalle de lo que está para cambio</label>
+          <textarea data-role="detalle" placeholder="Ej: teclado con teclas pegadas, requiere reemplazo">${st.detalleCambio}</textarea>
+        </div>
+      `;
+      card.querySelector('[data-role="quitarInstancia"]').addEventListener("click", () => {
+        items.splice(idx, 1);
+        if (items.length === 0) delete equipState[eq.id];
+        updateEquipSummary();
         renderEquipDetails();
         saveDraft();
       });
-    });
-    card.querySelector('[data-role="actividad"]').addEventListener("input", (e) => {
-      st.actividad = e.target.value;
-      saveDraft();
-    });
-    const toggle = card.querySelector('[data-role="toggle"]');
-    toggle.addEventListener("click", () => {
-      st.paraCambio = !st.paraCambio;
-      renderEquipDetails();
-      saveDraft();
-    });
-    const detalleTa = card.querySelector('[data-role="detalle"]');
-    if (detalleTa) {
-      detalleTa.addEventListener("input", (e) => {
-        st.detalleCambio = e.target.value;
+      card.querySelector('[data-role="activoFijo"]').addEventListener("input", (e) => {
+        st.activoFijo = e.target.value;
         saveDraft();
       });
-    }
-    wrap.appendChild(card);
+      card.querySelector('[data-role="foto"]').addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const compressed = await compressImage(file);
+        st.fotos.push(compressed);
+        renderEquipDetails();
+        saveDraft();
+      });
+      card.querySelectorAll(".thumb-remove").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          st.fotos.splice(Number(btn.dataset.idx), 1);
+          renderEquipDetails();
+          saveDraft();
+        });
+      });
+      card.querySelector('[data-role="actividad"]').addEventListener("input", (e) => {
+        st.actividad = e.target.value;
+        saveDraft();
+      });
+      const toggle = card.querySelector('[data-role="toggle"]');
+      toggle.addEventListener("click", () => {
+        st.paraCambio = !st.paraCambio;
+        renderEquipDetails();
+        saveDraft();
+      });
+      const detalleTa = card.querySelector('[data-role="detalle"]');
+      if (detalleTa) {
+        detalleTa.addEventListener("input", (e) => {
+          st.detalleCambio = e.target.value;
+          saveDraft();
+        });
+      }
+      wrap.appendChild(card);
+    });
   });
 }
 
@@ -468,17 +509,18 @@ document.getElementById("btnGuardar").addEventListener("click", async () => {
   const pdv = document.getElementById("f-pdv").value.trim();
   const fecha = document.getElementById("f-fecha").value;
   const tecnico = document.getElementById("f-tecnico").value.trim();
-  const equipos = Object.keys(equipState);
+  const equiposIds = Object.keys(equipState);
+  const totalEquipos = equiposIds.reduce((sum, id) => sum + equipState[id].length, 0);
 
   if (!pdv) return toast("Falta el nombre del PDV");
   if (!fecha) return toast("Falta la fecha");
-  if (equipos.length === 0) return toast("Marca al menos un equipo");
+  if (totalEquipos === 0) return toast("Marca al menos un equipo");
 
   const report = {
     id: uid(),
     creado: Date.now(),
     pdv, fecha, tecnico,
-    equipos: equipos.map((id) => ({ id, ...equipState[id] })),
+    equipos: equiposIds.flatMap((id) => equipState[id].map((item) => ({ id, ...item }))),
     firmaDibujo: getSigDataUrl(),
     firmaFotoPapel,
     selloFoto,
@@ -529,16 +571,47 @@ async function syncPending() {
     pending.length ? `Sincronizando ${pending.length} reporte(s) pendiente(s)...` : "Todo sincronizado.";
 }
 
-/* ============ Lista de reportes + exportar PDF ============ */
+/* ============ Lista de reportes + vista previa ============ */
+/* ============ Filtro de reportes ============ */
+let activeFilter = null; // { pdv, desde, hasta } o null
+
+function getFilteredReports(all) {
+  if (!activeFilter) return all;
+  return all.filter((r) => {
+    if (activeFilter.pdv && !r.pdv.toLowerCase().includes(activeFilter.pdv.toLowerCase())) return false;
+    if (activeFilter.desde && r.fecha < activeFilter.desde) return false;
+    if (activeFilter.hasta && r.fecha > activeFilter.hasta) return false;
+    return true;
+  });
+}
+document.getElementById("btnAplicarFiltro").addEventListener("click", () => {
+  const pdv = document.getElementById("filtroPdv").value.trim();
+  const desde = document.getElementById("filtroDesde").value;
+  const hasta = document.getElementById("filtroHasta").value;
+  activeFilter = (pdv || desde || hasta) ? { pdv, desde, hasta } : null;
+  renderReportsList();
+  toast(activeFilter ? "Filtro aplicado" : "Sin filtro (no ingresaste nada)");
+});
+document.getElementById("btnLimpiarFiltro").addEventListener("click", () => {
+  document.getElementById("filtroPdv").value = "";
+  document.getElementById("filtroDesde").value = "";
+  document.getElementById("filtroHasta").value = "";
+  activeFilter = null;
+  renderReportsList();
+});
+
 async function renderReportsList() {
   const list = document.getElementById("reportsList");
   const all = await dbAll();
-  if (all.length === 0) {
-    list.innerHTML = `<div class="empty-state">Aún no hay reportes guardados.</div>`;
+  const filtrados = getFilteredReports(all);
+  if (filtrados.length === 0) {
+    list.innerHTML = `<div class="empty-state">${
+      all.length === 0 ? "Aún no hay reportes guardados." : "No hay reportes que coincidan con el filtro."
+    }</div>`;
     return;
   }
   list.innerHTML = "";
-  all.forEach((r) => {
+  filtrados.forEach((r) => {
     const item = document.createElement("div");
     item.className = "report-item";
     item.innerHTML = `
@@ -548,77 +621,64 @@ async function renderReportsList() {
       </div>
       <span class="status-pill ${r.synced ? "synced" : "pending"}">${r.synced ? "Sincronizado" : "Pendiente"}</span>
     `;
-    item.addEventListener("click", () => exportPDF(r));
+    item.addEventListener("click", () => showReportDetail(r));
     list.appendChild(item);
   });
 }
 
-function exportPDF(r) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const marginX = 40;
-  let y = 50;
+function showReportDetail(r) {
+  const counts = {};
+  r.equipos.forEach((eq) => { counts[eq.id] = (counts[eq.id] || 0) + 1; });
+  const seen = {};
 
-  doc.setFontSize(16);
-  doc.text("Reporte de mantenimiento", marginX, y);
-  y += 24;
-  doc.setFontSize(11);
-  doc.text(`PDV: ${r.pdv}`, marginX, y); y += 16;
-  doc.text(`Fecha: ${r.fecha}`, marginX, y); y += 16;
-  doc.text(`Técnico: ${r.tecnico || "-"}`, marginX, y); y += 24;
+  let html = `
+    <div class="detail-block">
+      <div class="detail-row"><b>PDV:</b> ${r.pdv}</div>
+      <div class="detail-row"><b>Fecha:</b> ${r.fecha}</div>
+      <div class="detail-row"><b>Técnico:</b> ${r.tecnico || "-"}</div>
+      <div class="detail-row"><b>Estado:</b> ${r.synced ? "Sincronizado" : "Pendiente"}</div>
+    </div>
+  `;
 
   r.equipos.forEach((eq) => {
-    if (y > 700) { doc.addPage(); y = 50; }
     const meta = EQUIPOS.find((e) => e.id === eq.id);
-    doc.setFontSize(13);
-    doc.text(`${meta ? meta.label : eq.id}`, marginX, y);
-    y += 16;
-    doc.setFontSize(10);
-    if (eq.activoFijo) {
-      doc.text(`Activo fijo: ${eq.activoFijo}`, marginX, y);
-      y += 14;
-    }
-    const actividad = doc.splitTextToSize(`Actividad: ${eq.actividad || "-"}`, 500);
-    doc.text(actividad, marginX, y);
-    y += actividad.length * 12 + 4;
-    if (eq.paraCambio) {
-      const cambio = doc.splitTextToSize(`Para cambio: ${eq.detalleCambio || "sí"}`, 500);
-      doc.text(cambio, marginX, y);
-      y += cambio.length * 12 + 4;
-    }
+    seen[eq.id] = (seen[eq.id] || 0) + 1;
+    const nombre = counts[eq.id] > 1
+      ? `${meta ? meta.label : eq.id} ${seen[eq.id]}`
+      : (meta ? meta.label : eq.id);
     const fotos = eq.fotos || (eq.foto ? [eq.foto] : []);
-    if (fotos.length) {
-      if (y > 590) { doc.addPage(); y = 50; }
-      let x = marginX;
-      fotos.forEach((foto) => {
-        if (x + 110 > 555) { x = marginX; y += 90; }
-        if (y > 690) { doc.addPage(); y = 50; x = marginX; }
-        try { doc.addImage(foto, "JPEG", x, y, 100, 75); } catch (e) {}
-        x += 110;
-      });
-      y += 85;
-    }
-    y += 10;
+    const fotosHtml = fotos.length
+      ? `<div class="photo-gallery" style="margin-top:8px">${fotos.map((f) => `<div class="photo-thumb"><img src="${f}" /></div>`).join("")}</div>`
+      : "";
+
+    html += `
+      <div class="detail-equip-card">
+        <h4>${meta ? meta.icon : ""} ${nombre}</h4>
+        ${eq.activoFijo ? `<div class="detail-row"><b>Activo fijo:</b> ${eq.activoFijo}</div>` : ""}
+        <div class="detail-row"><b>Actividad:</b> ${eq.actividad || "-"}</div>
+        ${eq.paraCambio ? `<div class="detail-row warn"><b>Para cambio:</b> ${eq.detalleCambio || "Sí"}</div>` : ""}
+        ${fotosHtml}
+      </div>
+    `;
   });
 
-  if (y > 600) { doc.addPage(); y = 50; }
-  doc.setFontSize(13);
-  doc.text("Firma y sello", marginX, y);
-  y += 12;
-  if (r.firmaDibujo) {
-    try { doc.addImage(r.firmaDibujo, "PNG", marginX, y, 160, 70); } catch (e) {}
-  }
-  if (r.selloFoto) {
-    try { doc.addImage(r.selloFoto, "JPEG", marginX + 180, y, 100, 70); } catch (e) {}
-  }
-  y += 80;
-  if (r.firmaFotoPapel) {
-    if (y > 600) { doc.addPage(); y = 50; }
-    try { doc.addImage(r.firmaFotoPapel, "JPEG", marginX, y, 200, 140); } catch (e) {}
-  }
+  html += `<div class="detail-block"><h4 style="margin:0 0 10px">Firma y sello</h4>`;
+  if (r.firmaDibujo) html += `<div class="photo-thumb" style="width:140px; height:80px; background:#fff; display:inline-block; margin-right:8px"><img src="${r.firmaDibujo}" style="object-fit:contain" /></div>`;
+  if (r.firmaFotoPapel) html += `<div class="photo-thumb" style="width:100px; height:80px; display:inline-block; margin-right:8px"><img src="${r.firmaFotoPapel}" /></div>`;
+  if (r.selloFoto) html += `<div class="photo-thumb" style="width:100px; height:80px; display:inline-block"><img src="${r.selloFoto}" /></div>`;
+  if (!r.firmaDibujo && !r.firmaFotoPapel && !r.selloFoto) html += `<p class="hint" style="margin:0">Sin firma ni sello registrados.</p>`;
+  html += `</div>`;
 
-  doc.save(`mantenimiento_${r.pdv.replace(/\s+/g, "_")}_${r.fecha}.pdf`);
+  document.getElementById("detailModalTitle").textContent = `${r.pdv} — ${r.fecha}`;
+  document.getElementById("detailModalBody").innerHTML = html;
+  document.getElementById("detailModalBackdrop").classList.add("show");
 }
+document.getElementById("detailModalClose").addEventListener("click", () => {
+  document.getElementById("detailModalBackdrop").classList.remove("show");
+});
+document.getElementById("detailModalBackdrop").addEventListener("click", (e) => {
+  if (e.target.id === "detailModalBackdrop") e.currentTarget.classList.remove("show");
+});
 
 /* ============ Exportar reportes a Excel (día / todos) ============ */
 function todayStr() {
@@ -629,13 +689,20 @@ function todayStr() {
 function reportsToRows(reportes) {
   const rows = [];
   reportes.forEach((r) => {
+    const counts = {};
+    r.equipos.forEach((eq) => { counts[eq.id] = (counts[eq.id] || 0) + 1; });
+    const seen = {};
     r.equipos.forEach((eq) => {
       const meta = EQUIPOS.find((e) => e.id === eq.id);
+      seen[eq.id] = (seen[eq.id] || 0) + 1;
+      const nombreEquipo = counts[eq.id] > 1
+        ? `${meta ? meta.label : eq.id} ${seen[eq.id]}`
+        : (meta ? meta.label : eq.id);
       rows.push({
         "PDV": r.pdv,
         "Fecha": r.fecha,
         "Técnico": r.tecnico || "",
-        "Equipo": meta ? meta.label : eq.id,
+        "Equipo": nombreEquipo,
         "Activo fijo": eq.activoFijo || "",
         "Actividad realizada": eq.actividad || "",
         "Para cambio": eq.paraCambio ? "Sí" : "No",
@@ -671,7 +738,15 @@ async function exportAllExcel() {
   if (all.length === 0) return toast("No hay reportes guardados en este celular todavía");
   writeExcel(reportsToRows(all), `mantenimientos_TODOS_${todayStr()}.xlsx`);
 }
+async function exportFilterExcel() {
+  if (!activeFilter) return toast("Aplica un filtro primero (PDV o fechas)");
+  const all = await dbAll();
+  const filtrados = getFilteredReports(all);
+  if (filtrados.length === 0) return toast("No hay reportes que coincidan con el filtro");
+  writeExcel(reportsToRows(filtrados), `mantenimientos_filtro_${todayStr()}.xlsx`);
+}
 document.getElementById("btnExportExcelDia").addEventListener("click", exportDayExcel);
+document.getElementById("btnExportExcelFiltro").addEventListener("click", exportFilterExcel);
 document.getElementById("btnExportExcelTodo").addEventListener("click", exportAllExcel);
 
 /* ============ Navegación por pestañas ============ */
