@@ -46,6 +46,15 @@ async function dbAll() {
     req.onerror = () => reject(req.error);
   });
 }
+async function dbDelete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 
 /* ============ Utilidades ============ */
 function toast(msg) {
@@ -540,6 +549,25 @@ function getScriptUrl() {
 }
 const syncingIds = new Set(); // evita mandar el mismo reporte 2 veces a la vez
 
+// Ya que un reporte se sincronizó, sus fotos quedaron a salvo en Drive/Sheet,
+// así que se liberan del celular para no acumular espacio. Se conserva la
+// cantidad y si tenía firma/sello, para que el Excel y la vista de detalle
+// sigan mostrando esa info aunque la imagen en sí ya no esté en el celular.
+function stripSyncedPhotos(report) {
+  (report.equipos || []).forEach((eq) => {
+    const fotos = eq.fotos || (eq.foto ? [eq.foto] : []);
+    eq.fotosCount = fotos.length;
+    eq.fotos = [];
+    delete eq.foto;
+  });
+  report.firmaDibujoGuardada = !!report.firmaDibujo;
+  report.firmaFotoPapelGuardada = !!report.firmaFotoPapel;
+  report.selloFotoGuardada = !!report.selloFoto;
+  report.firmaDibujo = null;
+  report.firmaFotoPapel = null;
+  report.selloFoto = null;
+}
+
 async function trySync(report) {
   const url = getScriptUrl();
   if (!url || !navigator.onLine) return;
@@ -554,6 +582,7 @@ async function trySync(report) {
     });
     if (res.ok) {
       report.synced = true;
+      stripSyncedPhotos(report);
       await dbPut(report);
       renderReportsList();
     }
@@ -647,9 +676,13 @@ function showReportDetail(r) {
       ? `${meta ? meta.label : eq.id} ${seen[eq.id]}`
       : (meta ? meta.label : eq.id);
     const fotos = eq.fotos || (eq.foto ? [eq.foto] : []);
-    const fotosHtml = fotos.length
-      ? `<div class="photo-gallery" style="margin-top:8px">${fotos.map((f) => `<div class="photo-thumb"><img src="${f}" /></div>`).join("")}</div>`
-      : "";
+    const fotosCount = eq.fotosCount != null ? eq.fotosCount : fotos.length;
+    let fotosHtml = "";
+    if (fotos.length) {
+      fotosHtml = `<div class="photo-gallery" style="margin-top:8px">${fotos.map((f) => `<div class="photo-thumb"><img src="${f}" /></div>`).join("")}</div>`;
+    } else if (fotosCount > 0) {
+      fotosHtml = `<p class="hint" style="margin:8px 0 0">📷 ${fotosCount} foto(s) — sincronizadas, ya se liberaron del celular (disponibles en Drive).</p>`;
+    }
 
     html += `
       <div class="detail-equip-card">
@@ -664,9 +697,14 @@ function showReportDetail(r) {
 
   html += `<div class="detail-block"><h4 style="margin:0 0 10px">Firma y sello</h4>`;
   if (r.firmaDibujo) html += `<div class="photo-thumb" style="width:140px; height:80px; background:#fff; display:inline-block; margin-right:8px"><img src="${r.firmaDibujo}" style="object-fit:contain" /></div>`;
+  else if (r.firmaDibujoGuardada) html += `<p class="hint" style="margin:0 0 6px">✒️ Firma dibujada — sincronizada, ya no está en el celular.</p>`;
   if (r.firmaFotoPapel) html += `<div class="photo-thumb" style="width:100px; height:80px; display:inline-block; margin-right:8px"><img src="${r.firmaFotoPapel}" /></div>`;
+  else if (r.firmaFotoPapelGuardada) html += `<p class="hint" style="margin:0 0 6px">📷 Foto de firma en papel — sincronizada, ya no está en el celular.</p>`;
   if (r.selloFoto) html += `<div class="photo-thumb" style="width:100px; height:80px; display:inline-block"><img src="${r.selloFoto}" /></div>`;
-  if (!r.firmaDibujo && !r.firmaFotoPapel && !r.selloFoto) html += `<p class="hint" style="margin:0">Sin firma ni sello registrados.</p>`;
+  else if (r.selloFotoGuardada) html += `<p class="hint" style="margin:0">📷 Foto del sello — sincronizada, ya no está en el celular.</p>`;
+  if (!r.firmaDibujo && !r.firmaFotoPapel && !r.selloFoto && !r.firmaDibujoGuardada && !r.firmaFotoPapelGuardada && !r.selloFotoGuardada) {
+    html += `<p class="hint" style="margin:0">Sin firma ni sello registrados.</p>`;
+  }
   html += `</div>`;
 
   document.getElementById("detailModalTitle").textContent = `${r.pdv} — ${r.fecha}`;
@@ -707,9 +745,9 @@ function reportsToRows(reportes) {
         "Actividad realizada": eq.actividad || "",
         "Para cambio": eq.paraCambio ? "Sí" : "No",
         "Detalle de cambio": eq.detalleCambio || "",
-        "Fotos tomadas": (eq.fotos || (eq.foto ? [eq.foto] : [])).length,
-        "Firma": r.firmaDibujo || r.firmaFotoPapel ? "Sí" : "No",
-        "Sello": r.selloFoto ? "Sí" : "No",
+        "Fotos tomadas": eq.fotosCount != null ? eq.fotosCount : (eq.fotos || (eq.foto ? [eq.foto] : [])).length,
+        "Firma": (r.firmaDibujo || r.firmaFotoPapel || r.firmaDibujoGuardada || r.firmaFotoPapelGuardada) ? "Sí" : "No",
+        "Sello": (r.selloFoto || r.selloFotoGuardada) ? "Sí" : "No",
         "Sincronizado": r.synced ? "Sí" : "Pendiente",
       });
     });
@@ -757,6 +795,7 @@ document.querySelectorAll("nav.tabbar button").forEach((btn) => {
     btn.classList.add("active");
     document.getElementById("view-" + btn.dataset.view).classList.add("active");
     if (btn.dataset.view === "reportes") renderReportsList();
+    if (btn.dataset.view === "ajustes") updateStorageInfo();
   });
 });
 
@@ -768,6 +807,31 @@ document.getElementById("btnGuardarUrl").addEventListener("click", () => {
   syncPending();
 });
 document.getElementById("btnResync").addEventListener("click", syncPending);
+
+document.getElementById("btnBorrarSincronizados").addEventListener("click", async () => {
+  const all = await dbAll();
+  const sincronizados = all.filter((r) => r.synced);
+  if (sincronizados.length === 0) {
+    return toast("No hay reportes sincronizados para borrar");
+  }
+  const confirmar = window.confirm(
+    `Vas a borrar ${sincronizados.length} reporte(s) ya sincronizado(s) de este celular. ` +
+    `Ya están seguros en tu Google Sheet y Drive; esto solo libera espacio local. ¿Continuar?`
+  );
+  if (!confirmar) return;
+  for (const r of sincronizados) await dbDelete(r.id);
+  toast(`${sincronizados.length} reporte(s) borrado(s) de este celular`);
+  renderReportsList();
+  updateStorageInfo();
+});
+
+async function updateStorageInfo() {
+  const all = await dbAll();
+  const pendientes = all.filter((r) => !r.synced).length;
+  const sincronizados = all.length - pendientes;
+  document.getElementById("storageInfo").textContent =
+    `En este celular: ${all.length} reporte(s) guardado(s) — ${pendientes} pendiente(s), ${sincronizados} sincronizado(s).`;
+}
 
 /* ============ Estado de red ============ */
 function updateNetStatus() {
