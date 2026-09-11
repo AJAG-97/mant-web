@@ -86,8 +86,31 @@
   <section class="view" id="view-reportes">
     <p class="eyebrow">Historial</p>
     <h1>Reportes guardados</h1>
-    <p class="hint">Se sincronizan solos cuando hay conexión. Toca uno para exportar el PDF.</p>
-    <button type="button" id="btnExportExcelDia" style="width:100%; margin-bottom:10px">⬇ Exportar reportes de hoy (.xlsx)</button>
+    <p class="hint">Se sincronizan solos cuando hay conexión. Toca uno para ver el detalle.</p>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="field" style="margin-bottom:10px">
+        <label>PDV (opcional)</label>
+        <input type="text" id="filtroPdv" placeholder="Ej: Inglesa 200" />
+      </div>
+      <div style="display:flex; gap:10px; margin-bottom:12px">
+        <div class="field" style="flex:1; margin-bottom:0">
+          <label>Desde</label>
+          <input type="date" id="filtroDesde" />
+        </div>
+        <div class="field" style="flex:1; margin-bottom:0">
+          <label>Hasta</label>
+          <input type="date" id="filtroHasta" />
+        </div>
+      </div>
+      <div style="display:flex; gap:8px">
+        <button type="button" id="btnAplicarFiltro" style="flex:1">Aplicar filtro</button>
+        <button type="button" id="btnLimpiarFiltro" style="flex:1">Limpiar</button>
+      </div>
+    </div>
+
+    <button type="button" id="btnExportExcelDia" style="width:100%; margin-bottom:8px">⬇ Exportar reportes de hoy (.xlsx)</button>
+    <button type="button" id="btnExportExcelFiltro" style="width:100%; margin-bottom:8px">⬇ Exportar según filtro (.xlsx)</button>
     <button type="button" id="btnExportExcelTodo" style="width:100%; margin-bottom:14px">⬇ Exportar TODOS los reportes (.xlsx)</button>
     <div id="reportsList"></div>
   </section>
@@ -140,6 +163,16 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="detailModalBackdrop">
+  <div class="modal-sheet modal-sheet-tall">
+    <div class="modal-head">
+      <b id="detailModalTitle">Reporte</b>
+      <button type="button" class="modal-close" id="detailModalClose">✕</button>
+    </div>
+    <div class="modal-body" id="detailModalBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <nav class="tabbar">
@@ -148,7 +181,6 @@
   <button data-view="ajustes"><span class="icon">⚙</span>Ajustes</button>
 </nav>
 
-<script src="jspdf.umd.min.js"></script>
 <script src="xlsx.full.min.js"></script>
 <script src="app.js"></script>
 </body>
